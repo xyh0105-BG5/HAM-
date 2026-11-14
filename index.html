@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>HAM-AI (开源版)</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #121212; color: #e0e0e0; display: flex; justify-content: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+        .chat-container { width: 100%; max-width: 800px; background: #1e1e1e; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden; }
+        
+        /* 顶部设置区 */
+        .settings-bar { background: #2b2b36; padding: 15px; display: flex; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid #444; }
+        .settings-bar select, .settings-bar input { padding: 10px; border-radius: 6px; border: 1px solid #555; background: #1e1e24; color: white; font-size: 14px; }
+        .settings-bar input { flex: 1; min-width: 200px; }
+        .settings-bar label { color: #00d2d3; font-size: 14px; display: flex; align-items: center; font-weight: bold; }
+
+        .header { background: #00d2d3; color: #000; padding: 15px; text-align: center; font-weight: bold; font-size: 18px; }
+        .chat-box { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+        .message { max-width: 85%; padding: 12px 16px; border-radius: 8px; line-height: 1.6; font-size: 15px; word-wrap: break-word; white-space: pre-wrap; }
+        .user { background: #0055ff; color: white; align-self: flex-end; border-bottom-right-radius: 0; }
+        .bot { background: #2b2b36; align-self: flex-start; border-bottom-left-radius: 0; border-left: 3px solid #00d2d3; }
+        
+        .input-area { display: flex; padding: 15px; background: #121212; gap: 10px; }
+        .input-area input { flex: 1; padding: 15px; border-radius: 8px; border: 1px solid #444; background: #2b2b36; color: white; outline: none; font-size: 15px; }
+        .input-area input:focus { border-color: #00d2d3; }
+        .input-area button { padding: 0 25px; background: #00d2d3; color: #000; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px; transition: 0.2s; }
+        .input-area button:hover { background: #01a3a4; }
+        .input-area button:disabled { background: #555; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+<div class="chat-container">
+    <div class="header">📻 HAM-AI 智能助手 (开源 BYOK 版)</div>
+    
+    <!-- API 设置区域 -->
+    <div class="settings-bar">
+        <label>服务商:</label>
+        <select id="apiProvider" onchange="updateApiUrl()">
+            <option value="https://api.deepseek.com/chat/completions">DeepSeek (深度求索)</option>
+            <option value="https://api.moonshot.cn/v1/chat/completions">Kimi (月之暗面)</option>
+            <option value="https://open.bigmodel.cn/api/paas/v4/chat/completions">智谱 GLM</option>
+            <option value="custom">自定义...</option>
+        </select>
+        <input type="password" id="apiKeyInput" placeholder="请填入你的 API Key (sk-...)">
+    </div>
+
+    <div class="chat-box" id="chatBox">
+        <div class="message bot">你好！我是开源版的 HAM 无线电 AI 助手。
+请在顶部输入你自己的 API Key 即可开始使用。为了您的密钥安全，代码中未包含任何硬编码密钥。</div>
+    </div>
+    
+    <div class="input-area">
+        <input type="text" id="userInput" placeholder="输入你的问题..." onkeypress="handleKeyPress(event)">
+        <button id="sendBtn" onclick="sendMessage()">发送</button>
+    </div>
+</div>
+
+<script>
+    let API_URL = document.getElementById("apiProvider").value;
+
+    // 切换服务商时更新 API 地址
+    function updateApiUrl() {
+        let select = document.getElementById("apiProvider");
+        if (select.value !== 'custom') {
+            API_URL = select.value;
+        }
+    }
+
+    let chatHistory = [
+        { role: "system", content: "你是一个极其专业的资深业余无线电火腿（HAM），熟悉UV-K6刷机、天线制作、无线电法规、短波通信等。回答要幽默、硬核、接地气，多用火腿圈的黑话。" }
+    ];
+
+    function handleKeyPress(e) {
+        if (e.key === 'Enter') { sendMessage(); }
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('userInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const apiKey = document.getElementById('apiKeyInput').value.trim();
+        const text = input.value.trim();
+        
+        if (!text) return;
+        if (!apiKey) {
+            alert("请先在顶部填写你的 API Key！(保护隐私，本页面不会上传你的 Key)");
+            return;
+        }
+
+        // 界面显示用户消息
+        appendMessage(text, 'user');
+        input.value = '';
+        
+        sendBtn.disabled = true;
+        sendBtn.innerText = "思考中";
+        const loadingId = appendMessage("正在思考...", 'bot');
+
+        chatHistory.push({ role: "user", content: text });
+
+        try {
+            const response = await fetch(API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${apiKey}`
+                },
+                body: JSON.stringify({
+                    model: API_URL.includes("deepseek") ? "deepseek-chat" : (API_URL.includes("moonshot") ? "moonshot-v1-8k" : "glm-4"),
+                    messages: chatHistory,
+                    temperature: 0.7
+                })
+            });
+
+            const data = await response.json();
+            document.getElementById(loadingId).remove();
+            
+            if (data.choices && data.choices.length > 0) {
+                const botReply = data.choices[0].message.content;
+                appendMessage(botReply, 'bot');
+                chatHistory.push({ role: "assistant", content: botReply });
+            } else {
+                appendMessage("API 请求失败，请检查你的 Key 是否有效，或者网络是否通畅。", 'bot');
+            }
+
+        } catch (error) {
+            document.getElementById(loadingId).remove();
+            appendMessage("网络请求失败！(可能是因为跨域限制，或 API 额度不足)", 'bot');
+            console.error(error);
+        } finally {
+            sendBtn.disabled = false;
+            sendBtn.innerText = "发送";
+        }
+    }
+
+    function appendMessage(text, sender) {
+        const chatBox = document.getElementById('chatBox');
+        const msgDiv = document.createElement('div');
+        msgDiv.className = `message ${sender}`;
+        msgDiv.innerText = text;
+        const id = "msg-" + Date.now();
+        msgDiv.id = id;
+        chatBox.appendChild(msgDiv);
+        chatBox.scrollTop = chatBox.scrollHeight;
+        return id;
+    }
+</script>
+</body>
+</html>
